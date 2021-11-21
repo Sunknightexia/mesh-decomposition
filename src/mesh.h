@@ -9,9 +9,10 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include "shader.h"
-
+#include "decomposition.h"
 #include <string>
 #include <vector>
+#include <map>
 using namespace std;
 
 #define MAX_BONE_INFLUENCE 4
@@ -32,7 +33,17 @@ struct Vertex {
 	//weights from each bone
 	float m_Weights[MAX_BONE_INFLUENCE];
 };
-
+struct Edge {
+    unsigned int left;
+    unsigned int right;
+    unsigned int leftv;
+    unsigned int rightv;
+    float ang_d;
+    float geo_d;
+};
+struct Face {
+    glm::vec3 Normal;
+};
 struct Texture {
     unsigned int id;
     string type;
@@ -43,16 +54,49 @@ class Mesh {
 public:
     // mesh Data
     vector<Vertex>       vertices;
+    vector<Face> faces;
     vector<unsigned int> indices;
     vector<Texture>      textures;
     unsigned int VAO;
-
+    // edge map to face; distance of faces
+    vector<map<unsigned int, Edge>>* edge2face;
+    float ** weights;
+    float sum_angD, sum_geoD;
+    Decomposition decompositionMachine = Decomposition(0.2,1.0);
+    void initWeights(){
+        sum_angD = 0;
+        sum_geoD = 0;
+        for(unsigned int i=0;i<this->vertices.size();i++){
+            this->weights[i][i] = 0;
+            for(unsigned int j=i+1;j<this->vertices.size();j++){
+                this->weights[i][j] = -1;
+                this->weights[j][i] = -1;
+            }
+        }
+        for(unsigned int i=0;i<edge2face->size();i++){
+            for(map<unsigned int, Edge>::iterator it=edge2face->at(i).begin();it != edge2face->at(i).end();it++){
+                unsigned int j = it->first;
+                unsigned int left = it->second.left;
+                unsigned int right = it->second.right;
+                unsigned int leftv = it->second.leftv;
+                unsigned int rightv = it->second.rightv;
+                it->second.ang_d = decompositionMachine.calcAngDistance(faces[left].Normal,faces[right].Normal,vertices[i].Position,vertices[j].Position,vertices[left].Position,vertices[right].Position);
+                it->second.geo_d = decompositionMachine.calcGeoDistance(vertices[i].Position,vertices[j].Position,vertices[left].Position,vertices[right].Position);
+                weights[left][right] = it->second.ang_d+it->second.geo_d;
+                weights[right][left] = weights[left][right];
+            }
+        }
+    }
+    void calcWeights(){
+        decompositionMachine.floyd(weights, this->vertices.size());
+    }
     // constructor
-    Mesh(vector<Vertex> vertices, vector<unsigned int> indices, vector<Texture> textures)
+    Mesh(vector<Vertex> vertices, vector<unsigned int> indices, vector<Texture> textures, vector<Face> faces)
     {
         this->vertices = vertices;
         this->indices = indices;
         this->textures = textures;
+        this->faces = faces;
 
         // now that we have all the required data, set the vertex buffers and its attribute pointers.
         setupMesh();

@@ -14,7 +14,6 @@
 #include "stb_image.h"
 #include "mesh.h"
 #include "shader.h"
-
 #include <string>
 #include <fstream>
 #include <sstream>
@@ -53,7 +52,7 @@ private:
     {
         // read file via ASSIMP
         Assimp::Importer importer;
-        const aiScene* scene = importer.ReadFile(path, aiProcess_Triangulate | aiProcess_GenSmoothNormals | aiProcess_FlipUVs | aiProcess_CalcTangentSpace);
+        const aiScene* scene = importer.ReadFile(path, aiProcess_Triangulate | aiProcess_GenSmoothNormals | aiProcess_FlipUVs | aiProcess_CalcTangentSpace|aiProcess_JoinIdenticalVertices);
         // check for errors
         if(!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode) // if is Not Zero
         {
@@ -67,7 +66,7 @@ private:
         processNode(scene->mRootNode, scene);
         // cout<<"mesh number:"<<meshes.size()<<endl;
         // cout<<"mesh[0] vertice number:"<<meshes[0].vertices.size()<<endl;
-        // for(int i=0;i<10;i++){
+        // for(int i=0;i<meshes[0].vertices.size();i++){
         //     cout<<meshes[0].vertices[i].Position.x<<" "<<meshes[0].vertices[i].Position.y<<" "<<meshes[0].vertices[i].Position.z<<endl;
         // }
     }
@@ -82,6 +81,10 @@ private:
             // the scene contains all the data, node is just to keep stuff organized (like relations between nodes).
             aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
             meshes.push_back(processMesh(mesh, scene));
+            // processFace(mesh);
+            processEdge(mesh);
+            meshes.back().initWeights();
+            meshes.back().calcWeights();
         }
         // after we've processed all of the meshes (if any) we then recursively process each of the children nodes
         for(unsigned int i = 0; i < node->mNumChildren; i++)
@@ -90,14 +93,62 @@ private:
         }
 
     }
-
+    
+    void processEdge(aiMesh *mesh){
+        unsigned int begin,end, sidev;
+        bool edgeleft;
+        meshes.back().edge2face = new vector<map<unsigned int, Edge>>(mesh->mNumVertices);
+        for(unsigned int i = 0; i < mesh->mNumFaces; i++){
+            aiFace* face = &(mesh->mFaces[i]);
+            for(unsigned int j=0;j<face->mNumIndices;j++){
+                // face对应的vertex
+                if(face->mIndices[j]<face->mIndices[(j+1)%3]){
+                    begin = face->mIndices[j];
+                    end = face->mIndices[(j+1)%3];
+                    sidev = face->mIndices[(j+2)%3];
+                    edgeleft = true;
+                }else{
+                    end = face->mIndices[j];
+                    begin = face->mIndices[(j+1)%3];
+                    sidev = face->mIndices[(j+2)%3];
+                    edgeleft = false;
+                }
+                if(meshes.back().edge2face->at(begin).count(end)>0){
+                    if(edgeleft)
+                        meshes.back().edge2face->at(begin)[end].left = j;
+                    else
+                        meshes.back().edge2face->at(begin)[end].right = j;
+                }else{
+                    Edge edge;
+                    if(edgeleft){
+                        edge.left = i;
+                        edge.leftv = sidev;
+                    }
+                    else{
+                        edge.right = i;
+                        edge.rightv = sidev;
+                    }
+                    meshes.back().edge2face->at(begin)[end] = edge;
+                }
+            }
+        }
+    }
+    void processFace(aiMesh *mesh){
+        for(unsigned int i=0;i<mesh->mNumFaces;i++){
+            aiFace* face = &(mesh->mFaces[i]);
+            for(unsigned int j=0;j<face->mNumIndices;j++){
+                cout<<face->mIndices[j]<<" ";
+            }
+            cout<<endl;
+        }
+    }
     Mesh processMesh(aiMesh *mesh, const aiScene *scene)
     {
         // data to fill
         vector<Vertex> vertices;
         vector<unsigned int> indices;
         vector<Texture> textures;
-
+        vector<Face> faces;
         // walk through each of the mesh's vertices
         for(unsigned int i = 0; i < mesh->mNumVertices; i++)
         {
@@ -147,7 +198,13 @@ private:
             aiFace face = mesh->mFaces[i];
             // retrieve all indices of the face and store them in the indices vector
             for(unsigned int j = 0; j < face.mNumIndices; j++)
-                indices.push_back(face.mIndices[j]);        
+                indices.push_back(face.mIndices[j]);
+            glm::vec3 e1 = vertices[face.mIndices[1]].Position-vertices[face.mIndices[0]].Position;
+            glm::vec3 e2 = vertices[face.mIndices[2]].Position-vertices[face.mIndices[1]].Position;
+            Face f;
+            glm::vec3 normal = glm::cross(e1, e2);
+            f.Normal = glm::normalize(normal);
+            faces.push_back(f);
         }
         // process materials
         aiMaterial* material = scene->mMaterials[mesh->mMaterialIndex];    
@@ -172,7 +229,7 @@ private:
         textures.insert(textures.end(), heightMaps.begin(), heightMaps.end());
         
         // return a mesh object created from the extracted mesh data
-        return Mesh(vertices, indices, textures);
+        return Mesh(vertices, indices, textures, faces);
     }
 
     // checks all material textures of a given type and loads the textures if they're not loaded yet.
