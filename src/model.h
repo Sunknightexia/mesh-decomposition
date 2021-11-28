@@ -114,10 +114,14 @@ private:
                     edgeleft = false;
                 }
                 if(meshes.back().edge2face->at(begin).count(end)>0){
-                    if(edgeleft)
-                        meshes.back().edge2face->at(begin)[end].left = j;
-                    else
-                        meshes.back().edge2face->at(begin)[end].right = j;
+                    if(edgeleft){
+                        meshes.back().edge2face->at(begin)[end].left = i;
+                        meshes.back().edge2face->at(begin)[end].leftv = sidev;
+                    }
+                    else{
+                        meshes.back().edge2face->at(begin)[end].right = i;
+                        meshes.back().edge2face->at(begin)[end].rightv = sidev;
+                    }
                 }else{
                     Edge edge;
                     if(edgeleft){

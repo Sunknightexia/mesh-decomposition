@@ -34,8 +34,10 @@ struct Vertex {
 	float m_Weights[MAX_BONE_INFLUENCE];
 };
 struct Edge {
+    // face indice of left and right
     unsigned int left;
     unsigned int right;
+    // vertice indice of left and right
     unsigned int leftv;
     unsigned int rightv;
     float ang_d;
@@ -61,16 +63,27 @@ public:
     // edge map to face; distance of faces
     vector<map<unsigned int, Edge>>* edge2face;
     float ** weights;
+    int** paths;
     float sum_angD, sum_geoD;
     Decomposition decompositionMachine = Decomposition(0.2,1.0);
     void initWeights(){
+        unsigned int N = this->faces.size();
+        weights = new float*[N];
+        paths = new int*[N];
+        for(unsigned int i=0;i<N;i++){
+            weights[i] = new float[N];
+            paths[i] = new int[N];
+        }
         sum_angD = 0;
         sum_geoD = 0;
-        for(unsigned int i=0;i<this->vertices.size();i++){
+        for(unsigned int i=0;i<N;i++){
             this->weights[i][i] = 0;
-            for(unsigned int j=i+1;j<this->vertices.size();j++){
+            paths[i][i] = i;
+            for(unsigned int j=i+1;j<N;j++){
                 this->weights[i][j] = -1;
                 this->weights[j][i] = -1;
+                this->paths[i][j] = j;
+                this->paths[j][i] = i;
             }
         }
         for(unsigned int i=0;i<edge2face->size();i++){
@@ -81,14 +94,21 @@ public:
                 unsigned int leftv = it->second.leftv;
                 unsigned int rightv = it->second.rightv;
                 it->second.ang_d = decompositionMachine.calcAngDistance(faces[left].Normal,faces[right].Normal,vertices[i].Position,vertices[j].Position,vertices[left].Position,vertices[right].Position);
-                it->second.geo_d = decompositionMachine.calcGeoDistance(vertices[i].Position,vertices[j].Position,vertices[left].Position,vertices[right].Position);
+                it->second.geo_d = decompositionMachine.calcGeoDistance(vertices[i].Position,vertices[j].Position,vertices[leftv].Position,vertices[rightv].Position);
                 weights[left][right] = it->second.ang_d+it->second.geo_d;
                 weights[right][left] = weights[left][right];
             }
         }
     }
     void calcWeights(){
-        decompositionMachine.floyd(weights, this->vertices.size());
+        decompositionMachine.floyd(weights, paths, this->vertices.size());
+        // unsigned int N = this->faces.size();
+        // for(unsigned int i=0;i<N;i++){
+        //     for(unsigned int j=0;j<N;j++){
+        //         cout<<weights[i][j]<<";"<<paths[i][j]<<",";
+        //     }
+        //     cout<<endl;
+        // }
     }
     // constructor
     Mesh(vector<Vertex> vertices, vector<unsigned int> indices, vector<Texture> textures, vector<Face> faces)

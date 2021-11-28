@@ -45,22 +45,28 @@ public:
         glm::vec3 a0 = glm::vec3((begin.x+end.x+a1.x)/3,(begin.y+end.y+a1.y)/3,(begin.z+end.z+a1.z)/3);
         glm::vec3 b0 = glm::vec3((begin.x+end.x+b1.x)/3,(begin.y+end.y+b1.y)/3,(begin.z+end.z+b1.z)/3);
         // calc geo distance
-        float a =glm::length(a1-begin);
-        float b =glm::length(b1-begin);
+        float a =glm::length(a0-begin);
+        float b =glm::length(b0-begin);
         glm::vec3 c = glm::normalize(end-begin);
-        float cost_1= glm::dot(glm::normalize(a1-begin),c);
-        float cost_2= glm::dot(glm::normalize(b1-begin),c);
+        float cost_1= glm::dot(glm::normalize(a0-begin),c);
+        float cost_2= glm::dot(glm::normalize(b0-begin),c);
         float cost = cost_1*cost_2-sqrt(1-cost_1*cost_1)*sqrt(1-cost_2*cost_2);
         return sqrt(a*a+b*b-2*a*b*cost);
     }
-    void floyd(float** distance, unsigned int vn){
-        for(int i=0;i<vn;i++){
-            for(int j=i+1;j<vn;j++){
-                for(int jn=0;jn<vn;jn++){
-                    float temp = distance[i][jn]+ distance[jn][j];
-                    if(temp<distance[i][j])
-                        distance[i][j] = temp;
-                        distance[j][i] = temp;
+    void floyd(float** distance, int** paths, unsigned int vn){
+        // due to the graph is undirected graph, thus the distance can be calculated for half of matrix
+        for(unsigned int jn=0;jn<vn;jn++){
+            for(unsigned int i=0;i<vn;i++){
+                for(unsigned int j=i+1;j<vn;j++){
+                    if(distance[i][jn]!=-1 && distance[j][jn]!=-1){
+                        float temp = distance[i][jn]+ distance[jn][j];
+                        if(distance[i][j]==-1||temp<distance[i][j]){
+                            distance[i][j] = temp;
+                            distance[j][i] = temp;
+                            paths[i][j] = jn;
+                            paths[j][i] = jn;
+                        }
+                    }
                 }
             }
         }
