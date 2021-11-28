@@ -10,9 +10,11 @@
 
 #include "shader.h"
 #include "decomposition.h"
+#include "netflow.h"
 #include <string>
 #include <vector>
 #include <map>
+#include <set>
 using namespace std;
 
 #define MAX_BONE_INFLUENCE 4
@@ -65,34 +67,60 @@ public:
     unsigned int VAO;
     // edge map to face; distance of faces
     vector<map<unsigned int, Edge>>* edge2face;
+    // face map to edge; used for 最小割
+    int** face2edgeb;
+    int** face2edgee;
+    float** face2edgew;
     float ** weights;
     int** paths;
     float sum_angD, sum_geoD;
     float** probs;
     int * typeindex;
+    float avgAng_d;
+    float avgGeo_d;
+    // fuzzy matrix
+    float** fuzzycap;
+    vector<int> C;
+    vector<int> A;
+    vector<int> B;
+    vector<int> total;
     Decomposition decompositionMachine = Decomposition(0.2,1.0);
     void initWeights(){
         unsigned int N = this->faces.size();
         weights = new float*[N];
         paths = new int*[N];
+        face2edgeb = new int*[N];
+        face2edgee = new int*[N];
+        face2edgew = new float*[N];
         for(unsigned int i=0;i<N;i++){
             weights[i] = new float[N];
             paths[i] = new int[N];
+            face2edgeb[i] = new int[N];
+            face2edgee[i] = new int[N];
+            face2edgew[i] = new float[N];
         }
         sum_angD = 0;
         sum_geoD = 0;
         for(unsigned int i=0;i<N;i++){
             this->weights[i][i] = 0;
             paths[i][i] = i;
+            face2edgeb[i][i] = -1;
+            face2edgee[i][i] = -1;
             for(unsigned int j=i+1;j<N;j++){
                 this->weights[i][j] = -1;
                 this->weights[j][i] = -1;
                 this->paths[i][j] = j;
                 this->paths[j][i] = i;
+                face2edgeb[i][j] = -1;
+                face2edgeb[j][i] = -1;
+                face2edgee[i][j] = -1;
+                face2edgee[j][i] = -1;
+                face2edgew[i][j] = -1;
+                face2edgew[j][i] = -1;
             }
         }
-        float avgAng_d = 0;
-        float avgGeo_d = 0;
+        avgAng_d = 0;
+        avgGeo_d = 0;
         int adjacentN = 0;
         for(unsigned int i=0;i<edge2face->size();i++){
             for(map<unsigned int, Edge>::iterator it=edge2face->at(i).begin();it != edge2face->at(i).end();it++){
@@ -106,6 +134,13 @@ public:
                 avgAng_d += it->second.ang_d;
                 avgGeo_d += it->second.geo_d;
                 adjacentN += 1;
+
+                face2edgeb[left][right] = leftv;
+                face2edgee[left][right] = rightv;
+                face2edgeb[right][left] = leftv;
+                face2edgee[right][left] = rightv;
+                face2edgew[left][right] = it->second.ang_d;
+                face2edgew[right][left] = it->second.ang_d;
             }
         }
         avgAng_d /= adjacentN;
@@ -286,6 +321,122 @@ public:
             w += probs[typei][i]*weights[facei][i];
         }
         return w;
+    }
+    void fuzzyConstruct(float delta=0.1){
+        unsigned int N = this->faces.size();
+        set<unsigned int> As;
+        set<unsigned int> Bs;
+        
+        for(unsigned int i=0;i<N;i++){
+            if(probs[0][i]>(0.5-delta)&&probs[0][i]<(0.5+delta)){
+                C.push_back(i);
+                for(unsigned int j=0;j<3;j++){
+                    unsigned int begin = indices[i*3+j];
+                    unsigned int end = indices[i*3+(j+1)%3];
+                    bool findleft = true;
+                    if (begin>end){
+                        begin,end = end, begin;
+                        findleft = false;
+                    }
+                    unsigned int left;
+                    if(edge2face->at(begin).count(end)>0){
+                        if(findleft){
+                            left = edge2face->at(begin)[end].left;
+                        }else{
+                            left = edge2face->at(begin)[end].right;
+                        }
+                        if(probs[0][left]>0.5+delta){
+                            As.insert(left);
+                        }else if(probs[0][left]<0.5-delta){
+                            Bs.insert(left);
+                        }
+                    }
+                }
+            }
+        }
+        total.push_back(-1);
+        for(set<unsigned int>::iterator it=As.begin();it!=As.end();it++){
+            A.push_back(*it);
+            total.push_back(*it);
+        }
+        for(unsigned int j=0;j<C.size();j++){
+            total.push_back(C.at(j));
+        }
+        for(set<unsigned int>::iterator it=Bs.begin();it!=Bs.end();it++){
+            B.push_back(*it);
+            total.push_back(*it);
+        }
+        int fuzzysize = A.size()+B.size()+C.size()+2;
+        fuzzycap = new float*[fuzzysize];
+        for(unsigned int i=0;i<fuzzysize;i++){
+            fuzzycap[i] = new float[fuzzysize];
+            for(unsigned int j=0;j<fuzzysize;j++){
+                fuzzycap[i][j] = 0;
+            }
+        }
+        total.push_back(-2);
+        for(unsigned int i=0;i<(A.size());i++){
+            // 0 is the source
+            fuzzycap[0][i+1] = 1e10;
+            fuzzycap[i+1][0] = 1e10;
+            for(unsigned int j=0;j<C.size();j++){
+                if(face2edgeb[A.at(i)][C.at(j)]!=-1){
+                    fuzzycap[i+1][A.size()+1+j] = 1/(1+face2edgew[A.at(i)][C.at(j)]/avgAng_d);
+                    fuzzycap[A.size()+1+j][i+1] = fuzzycap[i+1][A.size()+1+j];
+                }
+            }
+        }
+        unsigned int Boffset = A.size()+C.size();
+        unsigned int Coffset = A.size();
+        for(unsigned int i=0;i<(B.size());i++){
+            // fuzzysize-1 is the dst
+            fuzzycap[fuzzysize-1][Boffset+i+1] = 1e10;
+            fuzzycap[Boffset+i+1][fuzzysize-1] = 1e10;
+            for(unsigned int j=0;j<C.size();j++){
+                if(face2edgeb[B.at(i)][C.at(j)]!=-1){
+                    fuzzycap[Boffset+i+1][Coffset+1+j] = 1/(1+face2edgew[B.at(i)][C.at(j)]/avgAng_d);
+                    fuzzycap[Coffset+1+j][Boffset+i+1] = fuzzycap[Boffset+i+1][Coffset+1+j];
+                }
+            }
+        }
+        for(unsigned int i=0;i<C.size();i++){
+            for(unsigned int j=i+1;j<C.size();j++){
+                if(face2edgeb[C.at(i)][C.at(j)]!=-1){
+                    fuzzycap[Coffset+i+1][Coffset+1+j] = 1/(1+face2edgew[C.at(i)][C.at(j)]/avgAng_d);
+                    fuzzycap[Coffset+1+j][Coffset+i+1] = fuzzycap[Coffset+i+1][Coffset+1+j];
+                }
+            }
+        }
+    }
+    void saveFuzzy(string output){
+        fuzzyConstruct(0.1);
+        vector<int> cut = fordFulkson(fuzzycap, A.size()+B.size()+C.size()+2);
+        for(int i=1;i<total.size()-1;i++){
+            faces[total.at(i)].type = 1;
+        }
+        for(int i=0;i<cut.size();i++){
+            faces[total.at(cut.at(i))].type = 0;
+        }
+        vector<glm::vec3> colors;
+        colors.push_back(glm::vec3(1,0,0));
+        colors.push_back(glm::vec3(0,0,1));
+
+        ofstream fopt(output);
+        // store vertice of faces and color
+        unsigned int N = this->faces.size();
+        for(unsigned int i=0;i<N;i++){
+            glm::vec3 color =  colors[faces[i].type];
+            for(unsigned int j=0;j<3;j++){
+                glm::vec3 pos = vertices[indices[i*3+j]].Position;
+                fopt<<"v "<<pos.x<<" "<<pos.y<<" "<<pos.z<<" "<<color.x<<" "<<color.y<<" "<<color.z<<endl;
+            }
+        }
+        for(unsigned int i=0;i<N;i++){
+            // fopt<<"f "<<indices[i*3]<<" "<<indices[i*3+1]<<" "<<indices[i*3+2]<<endl;
+            fopt<<"f "<<i*3+1<<" "<<i*3+2<<" "<<i*3+3<<endl;
+
+        }
+
     }
     void saveAs(string output){
         initProbs(2);
