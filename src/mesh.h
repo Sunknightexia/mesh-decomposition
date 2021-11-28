@@ -20,6 +20,8 @@ using namespace std;
 struct Vertex {
     // position
     glm::vec3 Position;
+    // colors
+    glm::vec3 Color;
     // normal
     glm::vec3 Normal;
     // texCoords
@@ -45,6 +47,7 @@ struct Edge {
 };
 struct Face {
     glm::vec3 Normal;
+    unsigned int type;
 };
 struct Texture {
     unsigned int id;
@@ -65,6 +68,8 @@ public:
     float ** weights;
     int** paths;
     float sum_angD, sum_geoD;
+    float** probs;
+    int * typeindex;
     Decomposition decompositionMachine = Decomposition(0.2,1.0);
     void initWeights(){
         unsigned int N = this->faces.size();
@@ -86,6 +91,9 @@ public:
                 this->paths[j][i] = i;
             }
         }
+        float avgAng_d = 0;
+        float avgGeo_d = 0;
+        int adjacentN = 0;
         for(unsigned int i=0;i<edge2face->size();i++){
             for(map<unsigned int, Edge>::iterator it=edge2face->at(i).begin();it != edge2face->at(i).end();it++){
                 unsigned int j = it->first;
@@ -95,14 +103,26 @@ public:
                 unsigned int rightv = it->second.rightv;
                 it->second.ang_d = decompositionMachine.calcAngDistance(faces[left].Normal,faces[right].Normal,vertices[i].Position,vertices[j].Position,vertices[left].Position,vertices[right].Position);
                 it->second.geo_d = decompositionMachine.calcGeoDistance(vertices[i].Position,vertices[j].Position,vertices[leftv].Position,vertices[rightv].Position);
-                weights[left][right] = it->second.ang_d+it->second.geo_d;
+                avgAng_d += it->second.ang_d;
+                avgGeo_d += it->second.geo_d;
+                adjacentN += 1;
+            }
+        }
+        avgAng_d /= adjacentN;
+        avgGeo_d /= adjacentN;
+        float delta = 0.5;
+        for(unsigned int i=0;i<edge2face->size();i++){
+            for(map<unsigned int, Edge>::iterator it=edge2face->at(i).begin();it != edge2face->at(i).end();it++){
+                unsigned int left = it->second.left;
+                unsigned int right = it->second.right;
+                weights[left][right] = (1-delta)*it->second.ang_d/avgAng_d+delta*it->second.geo_d/avgGeo_d;
                 weights[right][left] = weights[left][right];
             }
         }
     }
     void calcWeights(){
-        decompositionMachine.floyd(weights, paths, this->vertices.size());
-        // unsigned int N = this->faces.size();
+        unsigned int N = this->faces.size();
+        decompositionMachine.floyd(weights, paths, N);
         // for(unsigned int i=0;i<N;i++){
         //     for(unsigned int j=0;j<N;j++){
         //         cout<<weights[i][j]<<";"<<paths[i][j]<<",";
@@ -159,7 +179,138 @@ public:
         // always good practice to set everything back to defaults once configured.
         glActiveTexture(GL_TEXTURE0);
     }
+    void initProbs(unsigned int typen=2){
+        unsigned int N = this->faces.size();
+        int maxi=0;
+        int maxj = 0;
+        float length =0;
+        probs = new float*[typen];
+        for(unsigned int i=0;i<typen;i++){
+            probs[i] = new float[N];
+        }
+        for(unsigned int i=0;i<N;i++){
+            for(unsigned int j=i;j<N;j++){
+                if(weights[i][j]>length){
+                    length = weights[i][j];
+                    maxi = i;
+                    maxj = j;
+                }
+            }
+        }
+        typeindex = new int[typen];
+        typeindex[0] = maxi;
+        typeindex[1] = maxj;
+        // cout<<maxi<<" "<<maxj<<endl;
+        for(unsigned int i=0;i<N;i++){
+            float probsi_total =0;
+            int maxtype = 0;
+            float maxprob = 0;
+            for(unsigned int j=0;j<typen;j++){
+                probsi_total += 1/weights[typeindex[j]][i];
+                if((1/weights[typeindex[j]][i])>maxprob){
+                    maxprob = 1/weights[typeindex[j]][i];
+                    maxtype = j;
+                }
+            }
+            faces[i].type = maxtype;
+            for(unsigned int j=0;j<typen;j++){
+                probs[j][i] = 1/weights[typeindex[j]][i]/probsi_total;
+                // cout<< weights[typeindex[j]][i]<<" ";
+            }
+            // cout<<maxtype<<endl;
+        }
+    }
+    void prob(float** probs,unsigned int typen){
+        unsigned int N = this->faces.size();
+        for(unsigned int i=0;i<N;i++){
+            float probsi_total =0;
+            int maxtype = 0;
+            float maxprob = 0;
+            for(unsigned int j=0;j<typen;j++){
+                probsi_total += 1/weights[typeindex[j]][i];
+                if((1/weights[typeindex[j]][i])>maxprob){
+                    maxprob = 1/weights[typeindex[j]][i];
+                    maxtype = j;
+                }
+            }
+            faces[i].type = maxtype;
+            for(unsigned int j=0;j<typen;j++){
+                probs[j][i] = 1/weights[typeindex[j]][i]/probsi_total;
+                // cout<< weights[typeindex[j]][i]<<" ";
+            }
+            // cout<<maxtype<<endl;
+        }
+    }
+    void rep(float** probs, unsigned int typen, unsigned int times=0){
+        unsigned int N = this->faces.size();
+        float delta = 0.2;
+        unsigned int* tmptypeindex= new unsigned int[typen];
+        float* tmpweights= new float[typen];
+        // move the seed
+        for(unsigned int t=0;t<1000;t++){
+            for(unsigned int j=0;j<typen;j++){
+                tmptypeindex[j] = typeindex[j];
+                tmpweights[j] = 1e10;
+                for(unsigned int i=0;i<N;i++){
+                    if(probs[j][i]>0.5+delta){
+                        float w = weightsProb(i,j);
+                        if(w<tmpweights[j]){
+                            tmpweights[j] = w;
+                            tmptypeindex[j] = i;
+                        }
+                    }
+                }
+            }
+            unsigned int difference = 0;
+            for(unsigned int j=0;j<typen;j++){
+                if(tmptypeindex[j]!=typeindex[j]){
+                    difference += 1;
+                    typeindex[j] = tmptypeindex[j];
+                }
+            }
+            if(difference>0){
+                prob(probs,typen);
+            }else{
+                break;
+            }
+        }
+        if(times==1000){
+            cout<<"iteration limited"<<endl;
+            return;
+        }
+    }
+    float weightsProb(unsigned int facei, unsigned int typei){
+        unsigned int N = this->faces.size();
+        float w = 0;
+        for(unsigned int i=0;i<N;i++){
+            w += probs[typei][i]*weights[facei][i];
+        }
+        return w;
+    }
+    void saveAs(string output){
+        initProbs(2);
+        rep(probs,2);
+        vector<glm::vec3> colors;
+        colors.push_back(glm::vec3(1,0,0));
+        colors.push_back(glm::vec3(0,0,1));
 
+        ofstream fopt(output);
+        // store vertice of faces and color
+        unsigned int N = this->faces.size();
+        for(unsigned int i=0;i<N;i++){
+            glm::vec3 color =  colors[faces[i].type];
+            for(unsigned int j=0;j<3;j++){
+                glm::vec3 pos = vertices[indices[i*3+j]].Position;
+                fopt<<"v "<<pos.x<<" "<<pos.y<<" "<<pos.z<<" "<<color.x<<" "<<color.y<<" "<<color.z<<endl;
+            }
+        }
+        for(unsigned int i=0;i<N;i++){
+            // fopt<<"f "<<indices[i*3]<<" "<<indices[i*3+1]<<" "<<indices[i*3+2]<<endl;
+            fopt<<"f "<<i*3+1<<" "<<i*3+2<<" "<<i*3+3<<endl;
+
+        }
+        // store faces
+    }
 private:
     // render data 
     unsigned int VBO, EBO;
