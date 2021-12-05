@@ -354,7 +354,7 @@ public:
                 }
             }
         }
-        total.push_back(-1);
+        
         for(set<unsigned int>::iterator it=As.begin();it!=As.end();it++){
             A.push_back(*it);
             total.push_back(*it);
@@ -366,85 +366,72 @@ public:
             B.push_back(*it);
             total.push_back(*it);
         }
+        // -1,-2 is the no of src and dst, index is -2,-1
+        total.push_back(-1);
+        total.push_back(-2);
+
         int fuzzysize = A.size()+B.size()+C.size()+2;
         fuzzycap = new float*[fuzzysize];
         for(unsigned int i=0;i<fuzzysize;i++){
             fuzzycap[i] = new float[fuzzysize];
             for(unsigned int j=0;j<fuzzysize;j++){
-                fuzzycap[i][j] = 0;
+                fuzzycap[i][j] = -1;
             }
         }
-        total.push_back(-2);
+        int Aoffset = 0 ;
         for(unsigned int i=0;i<(A.size());i++){
             // 0 is the source
-            fuzzycap[0][i+1] = 1e10;
-            fuzzycap[i+1][0] = 1e10;
+            fuzzycap[fuzzysize-2][i+Aoffset] = 1e10;
+            fuzzycap[i+Aoffset][fuzzysize-2] = 1e10;
             for(unsigned int j=0;j<C.size();j++){
                 if(face2edgeb[A.at(i)][C.at(j)]!=-1){
-                    fuzzycap[i+1][A.size()+1+j] = 1/(1+face2edgew[A.at(i)][C.at(j)]/avgAng_d);
-                    fuzzycap[A.size()+1+j][i+1] = fuzzycap[i+1][A.size()+1+j];
+                    fuzzycap[i+Aoffset][A.size()+Aoffset+j] = 1/(1+face2edgew[A.at(i)][C.at(j)]/avgAng_d);
+                    fuzzycap[A.size()+Aoffset+j][i+Aoffset] = fuzzycap[i+Aoffset][A.size()+Aoffset+j];
                 }
             }
         }
-        unsigned int Boffset = A.size()+C.size();
-        unsigned int Coffset = A.size();
+        unsigned int Coffset = A.size()+Aoffset;
+        unsigned int Boffset = Coffset+C.size();
         for(unsigned int i=0;i<(B.size());i++){
             // fuzzysize-1 is the dst
-            fuzzycap[fuzzysize-1][Boffset+i+1] = 1e10;
-            fuzzycap[Boffset+i+1][fuzzysize-1] = 1e10;
+            fuzzycap[fuzzysize-1][Boffset+i] = 1e10;
+            fuzzycap[Boffset+i][fuzzysize-1] = 1e10;
             for(unsigned int j=0;j<C.size();j++){
                 if(face2edgeb[B.at(i)][C.at(j)]!=-1){
-                    fuzzycap[Boffset+i+1][Coffset+1+j] = 1/(1+face2edgew[B.at(i)][C.at(j)]/avgAng_d);
-                    fuzzycap[Coffset+1+j][Boffset+i+1] = fuzzycap[Boffset+i+1][Coffset+1+j];
+                    fuzzycap[Boffset+i][Coffset+j] = 1/(1+face2edgew[B.at(i)][C.at(j)]/avgAng_d);
+                    fuzzycap[Coffset+j][Boffset+i] = fuzzycap[Boffset+i][Coffset+j];
                 }
             }
         }
         for(unsigned int i=0;i<C.size();i++){
             for(unsigned int j=i+1;j<C.size();j++){
                 if(face2edgeb[C.at(i)][C.at(j)]!=-1){
-                    fuzzycap[Coffset+i+1][Coffset+1+j] = 1/(1+face2edgew[C.at(i)][C.at(j)]/avgAng_d);
-                    fuzzycap[Coffset+1+j][Coffset+i+1] = fuzzycap[Coffset+i+1][Coffset+1+j];
+                    fuzzycap[Coffset+i][Coffset+j] = 1/(1+face2edgew[C.at(i)][C.at(j)]/avgAng_d);
+                    fuzzycap[Coffset+j][Coffset+i] = fuzzycap[Coffset+i][Coffset+j];
                 }
             }
         }
     }
-    void saveFuzzy(string output){
-        fuzzyConstruct(0.1);
-        vector<int> cut = fordFulkson(fuzzycap, A.size()+B.size()+C.size()+2);
+    void fuzzy(){
+        fuzzyConstruct(0.01); 
+        FordFulkerson gr = FordFulkerson(fuzzycap, A.size()+B.size()+C.size()+2);
+        gr.ff(A.size()+B.size()+C.size(),A.size()+B.size()+C.size()+1);
+        vector<int> cut = gr.cut(A.size()+B.size()+C.size(),A.size()+B.size()+C.size()+1);
         for(int i=1;i<total.size()-1;i++){
             faces[total.at(i)].type = 1;
         }
         for(int i=0;i<cut.size();i++){
             faces[total.at(cut.at(i))].type = 0;
         }
-        vector<glm::vec3> colors;
-        colors.push_back(glm::vec3(1,0,0));
-        colors.push_back(glm::vec3(0,0,1));
-
-        ofstream fopt(output);
-        // store vertice of faces and color
-        unsigned int N = this->faces.size();
-        for(unsigned int i=0;i<N;i++){
-            glm::vec3 color =  colors[faces[i].type];
-            for(unsigned int j=0;j<3;j++){
-                glm::vec3 pos = vertices[indices[i*3+j]].Position;
-                fopt<<"v "<<pos.x<<" "<<pos.y<<" "<<pos.z<<" "<<color.x<<" "<<color.y<<" "<<color.z<<endl;
-            }
-        }
-        for(unsigned int i=0;i<N;i++){
-            // fopt<<"f "<<indices[i*3]<<" "<<indices[i*3+1]<<" "<<indices[i*3+2]<<endl;
-            fopt<<"f "<<i*3+1<<" "<<i*3+2<<" "<<i*3+3<<endl;
-
-        }
-
     }
-    void saveAs(string output){
+    void simpleDecomposition(){
         initProbs(2);
         rep(probs,2);
+    }
+    void saveAs(string output){
         vector<glm::vec3> colors;
         colors.push_back(glm::vec3(1,0,0));
         colors.push_back(glm::vec3(0,0,1));
-
         ofstream fopt(output);
         // store vertice of faces and color
         unsigned int N = this->faces.size();

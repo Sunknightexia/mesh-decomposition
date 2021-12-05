@@ -32,8 +32,24 @@ bool firstMouse = true;
 float deltaTime = 0.0f;
 float lastFrame = 0.0f;
 
-int main()
+int main(int argc, char* argv[])
 {
+    for(int i=0;i<argc;i++)
+        cout<<argv[i]<<endl;
+    char* objfile = NULL;
+    if(argc>1){
+        objfile = argv[1];
+    }else{
+        objfile = "resources/objects/bunny/reconstruction/bun_zipper.ply";
+        // objfile = "resources/objects/tetrahedron.obj";
+    }
+    bool drawmode = false;
+    // default decomposition
+    if(argc>2){
+        drawmode = true;
+    }
+    
+
     // glfw: initialize and configure
     // ------------------------------
     glfwInit();
@@ -80,12 +96,20 @@ int main()
     // build and compile shaders
     // -------------------------
     // Shader ourShader("Shaders/model_loading.vs", "Shaders/model_loading.fs");
-    Shader ourShader("Shaders/phong.vs", "Shaders/phong.fs");
+    Shader ourShader("Shaders/material.vs", "Shaders/material.fs");
 
     // load models
     // -----------
-    Model ourModel("resources/objects/eight.uniform.obj");
-
+    
+    Model ourModel(objfile,!drawmode);
+    if(!drawmode){
+        string output = objfile+string("decompositionfuzzy.obj");
+        ourModel.simple();
+        ourModel.fuzzy();
+        // ourModel.saveAs(output);
+        ourModel.saveAs(output);
+        return 0;
+    }
     
     // draw in wireframe
     //glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
@@ -97,7 +121,7 @@ int main()
         // per-frame time logic
         // --------------------
         float currentFrame = glfwGetTime();
-        deltaTime = currentFrame - lastFrame;
+        deltaTime = (currentFrame - lastFrame)/10;
         lastFrame = currentFrame;
 
         // input
@@ -132,7 +156,11 @@ int main()
         glUniform3f(lightAmbientLoc, 0.2f, 0.2f, 0.2f);
         glUniform3f(lightDiffuseLoc, 0.5f, 0.5f, 0.5f);
         glUniform3f(lightSpecularLoc, 1.0f, 1.0f, 1.0f);
-
+        // material properties
+        ourShader.setVec3("material.ambient", 1.0f, 0.5f, 0.31f);
+        ourShader.setVec3("material.diffuse", 1.0f, 0.5f, 0.31f);
+        ourShader.setVec3("material.specular", 0.5f, 0.5f, 0.5f); // specular lighting doesn't have full effect on this object's material
+        ourShader.setFloat("material.shininess", 32.0f);
         ourModel.Draw(ourShader);
 
 
@@ -191,7 +219,7 @@ void mouse_callback(GLFWwindow* window, double xpos, double ypos)
     lastX = xpos;
     lastY = ypos;
 
-    camera.ProcessMouseMovement(xoffset, yoffset);
+    camera.ProcessMouseMovement(xoffset/10, yoffset/10);
 }
 
 // glfw: whenever the mouse scroll wheel scrolls, this callback is called

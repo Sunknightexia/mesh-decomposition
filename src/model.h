@@ -38,12 +38,18 @@ public:
     {
         loadModel(path, joinvertice);
     }
-
+    
     // draws the model, and thus all its meshes
     void Draw(Shader &shader)
     {
         for(unsigned int i = 0; i < meshes.size(); i++)
             meshes[i].Draw(shader);
+    }
+    void simple(){
+        meshes[0].simpleDecomposition();
+    }
+    void fuzzy(){
+        meshes[0].fuzzy();
     }
     void saveAs(string output){
         meshes[0].saveAs(output);
@@ -71,7 +77,7 @@ private:
 
         // process ASSIMP's root node recursively
         processNode(scene->mRootNode, scene, joinvertice);
-        // cout<<"mesh number:"<<meshes.size()<<endl;
+        cout<<"mesh number:"<<meshes.size()<<endl;
         // cout<<"mesh[0] vertice number:"<<meshes[0].vertices.size()<<endl;
         // for(int i=0;i<meshes[0].vertices.size();i++){
         //     cout<<meshes[0].vertices[i].Position.x<<" "<<meshes[0].vertices[i].Position.y<<" "<<meshes[0].vertices[i].Position.z<<endl;
