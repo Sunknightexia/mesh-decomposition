@@ -38,7 +38,7 @@ endif()
 include_directories(src/Vendor/glad/include/)
 file(GLOB VENDORS_SOURCES src/Vendor/glad/src/glad.c)
 file(GLOB PROJECT_HEADERS src/Headers/*.hpp)
-file(GLOB PROJECT_SOURCES src/*.cpp)
+file(GLOB PROJECT_SOURCES src/main.cpp)
 file(GLOB PROJECT_SHADERS src/Shaders/*.comp
                           src/Shaders/*.glsl
                           src/Shaders/*.geom)
